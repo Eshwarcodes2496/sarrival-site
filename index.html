@@ -1,0 +1,50 @@
+// netlify/functions/admin-export.js
+// Export full waitlist — protected by ADMIN_SECRET env var
+// Usage: GET /api/admin-export?secret=YOUR_SECRET
+// Set ADMIN_SECRET in Netlify dashboard > Site settings > Environment variables
+
+import { getStore } from '@netlify/blobs';
+
+export default async function handler(req, context) {
+  const url    = new URL(req.url);
+  const secret = url.searchParams.get('secret');
+  const envSecret = process.env.ADMIN_SECRET;
+
+  if (!envSecret || secret !== envSecret) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const store   = getStore('waitlist');
+    const raw     = await store.get('count');
+    const total   = raw ? parseInt(raw, 10) : 0;
+    const entries = [];
+
+    // Read all sequential entries
+    for (let i = 1; i <= total; i++) {
+      const key  = 'entry:' + String(i).padStart(8, '0');
+      const data = await store.get(key);
+      if (data) {
+        try { entries.push(JSON.parse(data)); } catch {}
+      }
+    }
+
+    return new Response(JSON.stringify({ total, entries }, null, 2), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Disposition': 'attachment; filename="sarrival-waitlist.json"',
+      },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: 'Export failed', detail: err.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+export const config = { path: '/api/admin-export' };
